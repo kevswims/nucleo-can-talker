@@ -2,10 +2,13 @@
 #![no_main]
 
 // pick a panicking behavior
-extern crate panic_halt; // you can put a breakpoint on `rust_begin_unwind` to catch panics
+// extern crate panic_halt; // you can put a breakpoint on `rust_begin_unwind` to catch panics
 // extern crate panic_abort; // requires nightly
 // extern crate panic_itm; // logs messages over ITM; requires ITM support
-// extern crate panic_semihosting; // logs messages to the host stderr; requires a debugger
+extern crate panic_semihosting; // logs messages to the host stderr; requires a debugger
+
+#[macro_use(block)]
+extern crate nb;
 
 use cortex_m_rt::entry;
 use stm32f4xx_hal as hal;
@@ -33,7 +36,7 @@ fn main() -> ! {
         let mut led = gpiob.pb7.into_push_pull_output();
 
         let rcc = dp.RCC.constrain();
-        let clocks = rcc.cfgr.sysclk(48.mhz()).freeze();
+        let clocks = rcc.cfgr.sysclk(100.mhz()).freeze();
 
         let mut delay = hal::delay::Delay::new(cp.SYST, clocks);
 
@@ -41,7 +44,11 @@ fn main() -> ! {
         let gpiod = dp.GPIOD.split();
         let bps = Bps(115200);
 
-        configure(dp.USART3, gpiod.pd8, gpiod.pd9, bps, clocks);
+        let mut tx = configure(dp.USART3, gpiod.pd8, gpiod.pd9, bps, clocks);
+
+        for byte in b"Hello World\n" {
+            block!(tx.write(*byte)).unwrap();
+        }
 
         loop {
             led.set_high().unwrap();
@@ -68,8 +75,7 @@ pub fn configure<X, Y>(uart: USART3, tx: PD8<X>, rx: PD9<Y>, baudrate: Bps, cloc
     let tx = tx.into_alternate_af7();
     let rx = rx.into_alternate_af7();
     let serial = Serial::usart3(uart, (tx, rx), config, clocks).unwrap();
-    let (mut tx, _) = serial.split();
-    tx.write(b'a').unwrap();
+    let (tx, _) = serial.split();
     tx
 }
 
