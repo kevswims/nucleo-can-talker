@@ -10,21 +10,19 @@ extern crate panic_semihosting; // logs messages to the host stderr; requires a 
 #[macro_use(block)]
 extern crate nb;
 
+use numtoa::NumToA;
+
 use cortex_m_rt::entry;
 use stm32f4xx_hal as hal;
 
-use stm32f4xx_hal::gpio::gpiod::{PD8, PD9};
-use crate::hal::serial::config::Config;
 use crate::hal::rcc::Clocks;
-use stm32f4xx_hal::stm32::USART3;
+use crate::hal::serial::config::Config;
 use stm32f4;
+use stm32f4xx_hal::gpio::gpiod::{PD8, PD9};
+use stm32f4xx_hal::stm32::USART3;
 // use stm32f4::stm32f413::USART3;
 
-use crate::hal::{
-    serial::{Serial},
-    time::Bps,
-    prelude::*,
-    stm32};
+use crate::hal::{prelude::*, serial::Serial, stm32, time::Bps};
 
 #[entry]
 fn main() -> ! {
@@ -40,15 +38,39 @@ fn main() -> ! {
 
         let mut delay = hal::delay::Delay::new(cp.SYST, clocks);
 
-
         let gpiod = dp.GPIOD.split();
         let bps = Bps(115200);
 
         let mut tx = configure(dp.USART3, gpiod.pd8, gpiod.pd9, bps, clocks);
 
-        for byte in b"Hello World\n" {
-            block!(tx.write(*byte)).unwrap();
-        }
+        write_string_to_serial(&mut tx, "ABCDEF\n");
+
+        let mut buffer = [0u8; 20];
+
+        1234.numtoa_str(10, &mut buffer);
+
+        write_bytes_to_serial(&mut tx, &buffer);
+
+        write_string_to_serial(&mut tx, "Hello World\n");
+
+        // let clock_info = format!("AHB1: {:?}", clocks.hclk());
+        // let clock_info = format!("AHB1: {}", 100);
+
+        // Use PD0 RX, PD1 TX
+        let _can_rx = gpiod.pd0.into_alternate_af9();
+        let _can_tx = gpiod.pd1.into_alternate_af9();
+
+        let rcc = unsafe { &(*stm32::RCC::ptr()) };
+
+        // Enable the clock for the can peripheral
+        rcc.apb1enr.modify(|_, w| w.can3en().set_bit());
+
+        // Need to figure out if there is a safe way to grab this peripheral
+        let can3 = unsafe { &(*stm32::CAN3::ptr()) };
+
+        // Enable loopback mode so we can receive what we are sending.
+        // Note: This will still send data out the TX pin unless silent mode is enabled.
+        can3.btr.modify(|_, w| w.lbkm().set_bit());
 
         loop {
             led.set_high().unwrap();
@@ -63,10 +85,23 @@ fn main() -> ! {
     }
 }
 
+pub fn write_string_to_serial(tx: &mut stm32f4xx_hal::serial::Tx<stm32f4::stm32f413::USART3>, string: &str) {
+    write_bytes_to_serial(tx, string.as_bytes());
+}
 
-pub fn configure<X, Y>(uart: USART3, tx: PD8<X>, rx: PD9<Y>, baudrate: Bps, clocks: Clocks)
-    -> hal::serial::Tx<stm32f4::stm32f413::USART3>
-    {
+pub fn write_bytes_to_serial(tx: &mut stm32f4xx_hal::serial::Tx<stm32f4::stm32f413::USART3>, bytes: &[u8]) {
+    for byte in bytes.iter() {
+        block!(tx.write(*byte)).unwrap();
+    }
+}
+
+pub fn configure<X, Y>(
+    uart: USART3,
+    tx: PD8<X>,
+    rx: PD9<Y>,
+    baudrate: Bps,
+    clocks: Clocks,
+) -> hal::serial::Tx<stm32f4::stm32f413::USART3> {
     let config = Config {
         baudrate,
         ..Config::default()
@@ -83,14 +118,14 @@ pub fn configure<X, Y>(uart: USART3, tx: PD8<X>, rx: PD9<Y>, baudrate: Bps, cloc
 // CAN clocks are enabled in RCC_APB1ENR
 // CAN1 RX - PG0, TX - PG1
 // CAN1 RX - PA11, TX - PA12
-// CAN1 RX - PD0, TX - PD1
+// CAN1 RX - PD0, TX - PD1 ---
 // CAN1 RX - PB8, TX - PB9
 // CAN2 RX - PB12, TX - PB13
 // CAN2 RX - PG11, TX - PG12
 // CAN2 RX - PB5, TX - PB6
 // CAN3 RX - PA8, TX - PA15
 // CAN3 RX - PB3, TX - PB4
-// 
+//
 // Can has 3 modes: Initialization, Normal, Sleep
 // Set INRQ bit in CAN_MCR to enter initialization mode
 // Wait for INAK bit to be set in CAN_MSR register
@@ -132,14 +167,14 @@ pub fn configure<X, Y>(uart: USART3, tx: PD8<X>, rx: PD9<Y>, baudrate: Bps, cloc
 // t_bs1 = t_q x (TS1[3:0] + 1)
 // t_bs1 = t_q x (TS2[3:0] + 1)
 // t_q = (BRP[9:0] + 1) x t_pclk
-// t_pclk = time period of the APB clock
 
+// Need to find this
+// t_pclk = time period of the APB clock
 
 // Filter setup
 // Can be setup while in initialization or normal mode
 // Must set FINIT bit in CAN_FMR to modify the filters
 // CAN reception is deactivated when FINIT = 1
-
 
 // Notes:
 // 1. Hard to tell if there are three or two can controllers
