@@ -43,15 +43,42 @@ fn main() -> ! {
 
         let mut tx = configure(dp.USART3, gpiod.pd8, gpiod.pd9, bps, clocks);
 
-        write_string_to_serial(&mut tx, "ABCDEF\n");
 
         let mut buffer = [0u8; 20];
-
-        1234.numtoa_str(10, &mut buffer);
-
+        write_string_to_serial(&mut tx, "AHB1: ");
+        (clocks.hclk().0 / 1000000).numtoa_str(10, &mut buffer);
         write_bytes_to_serial(&mut tx, &buffer);
+        write_string_to_serial(&mut tx, "\n");
 
-        write_string_to_serial(&mut tx, "Hello World\n");
+        let mut buffer = [0u8; 20];
+        write_string_to_serial(&mut tx, "APB1: ");
+        (clocks.pclk1().0 / 1000000).numtoa_str(10, &mut buffer);
+        write_bytes_to_serial(&mut tx, &buffer);
+        write_string_to_serial(&mut tx, "\n");
+
+        let mut buffer = [0u8; 20];
+        write_string_to_serial(&mut tx, "APB2: ");
+        (clocks.pclk2().0 / 1000000).numtoa_str(10, &mut buffer);
+        write_bytes_to_serial(&mut tx, &buffer);
+        write_string_to_serial(&mut tx, "\n");
+
+        let mut buffer = [0u8; 20];
+        write_string_to_serial(&mut tx, "APB1 Prescaler: ");
+        clocks.ppre1().numtoa_str(10, &mut buffer);
+        write_bytes_to_serial(&mut tx, &buffer);
+        write_string_to_serial(&mut tx, "\n");
+
+        let mut buffer = [0u8; 20];
+        write_string_to_serial(&mut tx, "APB2 Prescaler: ");
+        clocks.ppre2().numtoa_str(10, &mut buffer);
+        write_bytes_to_serial(&mut tx, &buffer);
+        write_string_to_serial(&mut tx, "\n");
+
+        let mut buffer = [0u8; 20];
+        write_string_to_serial(&mut tx, "System Frequency: ");
+        (clocks.sysclk().0 / 1000000).numtoa_str(10, &mut buffer);
+        write_bytes_to_serial(&mut tx, &buffer);
+        write_string_to_serial(&mut tx, "\n");
 
         // let clock_info = format!("AHB1: {:?}", clocks.hclk());
         // let clock_info = format!("AHB1: {}", 100);
@@ -84,6 +111,12 @@ fn main() -> ! {
         // your code goes here
     }
 }
+
+// impl From<u32> for Hertz {
+//     fn from(item: u32) -> Self {
+//         
+//     }
+// }
 
 pub fn write_string_to_serial(tx: &mut stm32f4xx_hal::serial::Tx<stm32f4::stm32f413::USART3>, string: &str) {
     write_bytes_to_serial(tx, string.as_bytes());
@@ -170,6 +203,8 @@ pub fn configure<X, Y>(
 
 // Need to find this
 // t_pclk = time period of the APB clock
+
+// CAN is on APB1
 
 // Filter setup
 // Can be setup while in initialization or normal mode
