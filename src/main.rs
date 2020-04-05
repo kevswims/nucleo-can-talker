@@ -18,7 +18,7 @@ use stm32f4xx_hal as hal;
 use crate::hal::rcc::Clocks;
 use crate::hal::serial::config::Config;
 use stm32f4;
-use stm32f4xx_hal::gpio::gpiod::{PD8, PD9};
+use stm32f4xx_hal::gpio::gpiod::{PD0, PD1, PD8, PD9};
 use stm32f4xx_hal::stm32::USART3;
 // use stm32f4::stm32f413::USART3;
 
@@ -42,7 +42,6 @@ fn main() -> ! {
         let bps = Bps(115200);
 
         let mut tx = configure(dp.USART3, gpiod.pd8, gpiod.pd9, bps, clocks);
-
 
         let mut buffer = [0u8; 20];
         write_string_to_serial(&mut tx, "AHB1: ");
@@ -83,9 +82,11 @@ fn main() -> ! {
         // let clock_info = format!("AHB1: {:?}", clocks.hclk());
         // let clock_info = format!("AHB1: {}", 100);
 
+        ///////////////////////////////////////////////////////////////////////
+        // Pin Setup
+        //////////////////////////////////////////////////////////////////////
         // Use PD0 RX, PD1 TX
-        let _can_rx = gpiod.pd0.into_alternate_af9();
-        let _can_tx = gpiod.pd1.into_alternate_af9();
+        setup_can_gpio(gpiod.pd0, gpiod.pd1);
 
         let rcc = unsafe { &(*stm32::RCC::ptr()) };
 
@@ -95,9 +96,72 @@ fn main() -> ! {
         // Need to figure out if there is a safe way to grab this peripheral
         let can3 = unsafe { &(*stm32::CAN3::ptr()) };
 
+        // Switch hardware into initialization mode.
+        can3.mcr
+            .modify(|_, w| w.inrq().set_bit().sleep().clear_bit());
+
+        // Wait for INAK bit in MSR to be set to indicate initialization is active
+        loop {
+            if can3.msr.read().inak().bit() {
+                break;
+            }
+        }
+
         // Enable loopback mode so we can receive what we are sending.
         // Note: This will still send data out the TX pin unless silent mode is enabled.
-        can3.btr.modify(|_, w| w.lbkm().set_bit());
+        // Sets the timing to 125kbaud
+        unsafe {
+            can3.btr.modify(|_, w| {
+                w.lbkm()
+                    .enabled()
+                    .sjw()
+                    .bits(2)
+                    .ts2()
+                    .bits(5)
+                    .ts1()
+                    .bits(8)
+                    .brp()
+                    .bits(24)
+            });
+        }
+
+        if !can3.msr.read().inak().bit() {
+            write_string_to_serial(&mut tx, "INAK is cleared\n");
+        } else {
+            write_string_to_serial(&mut tx, "INAK is set\n");
+        }
+
+        // Switch hardware into normal mode.
+        can3.mcr.modify(|_, w| w.inrq().clear_bit());
+
+        // Wait for INAK bit in MSR to be cleared to indicate init has completed
+        loop {
+            if !can3.msr.read().inak().bit() {
+                break;
+            }
+        }
+
+        write_string_to_serial(&mut tx, "INAK cleared\n");
+
+        // Set to standard identifier
+        unsafe {
+            can3.tx[0]
+                .tir
+                .modify(|_, w| w.ide().standard().stid().bits(12));
+        }
+
+        unsafe {
+            can3.tx[0].tdtr.modify(|_, w| w.dlc().bits(2));
+        }
+
+        // Start transmission
+        can3.tx[0].tir.modify(|_, w| w.txrq().set_bit());
+
+        loop {
+            if can3.tx[0].tir.read().txrq().bit_is_clear() {
+                break;
+            }
+        }
 
         loop {
             led.set_high().unwrap();
@@ -112,17 +176,33 @@ fn main() -> ! {
     }
 }
 
-// impl From<u32> for Hertz {
-//     fn from(item: u32) -> Self {
-//         
-//     }
-// }
+pub fn setup_can_gpio<X, Y>(rx: PD0<X>, tx: PD1<Y>) {
+    // CAN1 RX - PG0, TX - PG1
+    // CAN1 RX - PA11, TX - PA12
+    // CAN1 RX - PD0, TX - PD1 ---
+    // CAN1 RX - PB8, TX - PB9
+    // CAN2 RX - PB12, TX - PB13
+    // CAN2 RX - PG11, TX - PG12
+    // CAN2 RX - PB5, TX - PB6
+    // CAN3 RX - PA8, TX - PA15
+    // CAN3 RX - PB3, TX - PB4
 
-pub fn write_string_to_serial(tx: &mut stm32f4xx_hal::serial::Tx<stm32f4::stm32f413::USART3>, string: &str) {
+    // Use PD0 RX, PD1 TX
+    let _can_rx = rx.into_alternate_af9();
+    let _can_tx = tx.into_alternate_af9();
+}
+
+pub fn write_string_to_serial(
+    tx: &mut stm32f4xx_hal::serial::Tx<stm32f4::stm32f413::USART3>,
+    string: &str,
+) {
     write_bytes_to_serial(tx, string.as_bytes());
 }
 
-pub fn write_bytes_to_serial(tx: &mut stm32f4xx_hal::serial::Tx<stm32f4::stm32f413::USART3>, bytes: &[u8]) {
+pub fn write_bytes_to_serial(
+    tx: &mut stm32f4xx_hal::serial::Tx<stm32f4::stm32f413::USART3>,
+    bytes: &[u8],
+) {
     for byte in bytes.iter() {
         block!(tx.write(*byte)).unwrap();
     }
@@ -204,7 +284,12 @@ pub fn configure<X, Y>(
 // Need to find this
 // t_pclk = time period of the APB clock
 
-// CAN is on APB1
+// CAN is on APB1 which is 50 MHz
+
+// Baud Rate Prescaler = 24 (24 + 1)
+// t_q = 0.5us
+// t_bs1 = 9 (8 + 1)
+// t_bs2 = 6 (5 + 1)
 
 // Filter setup
 // Can be setup while in initialization or normal mode
