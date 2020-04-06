@@ -98,7 +98,19 @@ fn main() -> ! {
 
         // Switch hardware into initialization mode.
         can3.mcr
-            .modify(|_, w| w.inrq().set_bit().sleep().clear_bit());
+            .modify(|_, w| w.sleep().clear_bit());
+
+        // Wait for SLAK bit in MSR to be cleared to indicate sleep mode has been exited
+        loop {
+            if !can3.msr.read().slak().bit() {
+                break;
+            }
+            delay.delay_ms(1000_u32);
+            write_string_to_serial(&mut tx, "Waiting for SLAK to be cleared\n");
+        }
+
+        can3.mcr
+            .modify(|_, w| w.inrq().set_bit());
 
         // Wait for INAK bit in MSR to be set to indicate initialization is active
         loop {
@@ -134,11 +146,18 @@ fn main() -> ! {
         // Switch hardware into normal mode.
         can3.mcr.modify(|_, w| w.inrq().clear_bit());
 
+        can3.fmr.modify(|_, w| w.finit().clear_bit());
+
         // Wait for INAK bit in MSR to be cleared to indicate init has completed
         loop {
             if !can3.msr.read().inak().bit() {
                 break;
             }
+            if can3.mcr.read().inrq().bit() {
+                write_string_to_serial(&mut tx, "INRQ Is Set\n");
+            }
+            delay.delay_ms(1000_u32);
+            write_string_to_serial(&mut tx, "Waiting for INAK to be cleared\n");
         }
 
         write_string_to_serial(&mut tx, "INAK cleared\n");
