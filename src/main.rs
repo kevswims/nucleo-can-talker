@@ -91,39 +91,47 @@ fn main() -> ! {
         let rcc = unsafe { &(*stm32::RCC::ptr()) };
 
         // Enable the clock for the can peripheral
-        rcc.apb1enr.modify(|_, w| w.can3en().set_bit());
+        rcc.apb1enr.modify(|_, w| w.can1en().set_bit());
 
         // Need to figure out if there is a safe way to grab this peripheral
-        let can3 = unsafe { &(*stm32::CAN3::ptr()) };
+        let can1 = unsafe { &(*stm32::CAN1::ptr()) };
 
-        // Switch hardware into initialization mode.
-        can3.mcr
-            .modify(|_, w| w.sleep().clear_bit());
+        // Exit from sleep mode
+        can1.mcr.modify(|_, w| w.sleep().clear_bit());
 
-        // Wait for SLAK bit in MSR to be cleared to indicate sleep mode has been exited
-        loop {
-            if !can3.msr.read().slak().bit() {
-                break;
-            }
-            delay.delay_ms(1000_u32);
-            write_string_to_serial(&mut tx, "Waiting for SLAK to be cleared\n");
-        }
-
-        can3.mcr
-            .modify(|_, w| w.inrq().set_bit());
+        // request initialization
+        can1.mcr.modify(|_, w| w.inrq().set_bit());
 
         // Wait for INAK bit in MSR to be set to indicate initialization is active
         loop {
-            if can3.msr.read().inak().bit() {
+            if can1.msr.read().inak().bit() {
                 break;
             }
+            write_string_to_serial(&mut tx, "Waiting for initialization\n");
+        }
+
+        unsafe {
+            can1.mcr.modify(|_, w| {
+                w.ttcm()
+                    .clear_bit()
+                    .abom()
+                    .clear_bit()
+                    .awum()
+                    .clear_bit()
+                    .nart()
+                    .clear_bit()
+                    .rflm()
+                    .clear_bit()
+                    .txfp()
+                    .clear_bit()
+            });
         }
 
         // Enable loopback mode so we can receive what we are sending.
         // Note: This will still send data out the TX pin unless silent mode is enabled.
         // Sets the timing to 125kbaud
         unsafe {
-            can3.btr.modify(|_, w| {
+            can1.btr.modify(|_, w| {
                 w.lbkm()
                     .enabled()
                     .sjw()
@@ -136,25 +144,36 @@ fn main() -> ! {
                     .bits(24)
             });
         }
+        // Note: This was what was tested and seemed like a 1.5mbaud rate??
+        // unsafe {
+        //     can1.btr.modify(|_, w| {
+        //         w.lbkm()
+        //             .enabled()
+        //             .sjw()
+        //             .bits(0)
+        //             .ts2()
+        //             .bits(3)
+        //             .ts1()
+        //             .bits(2)
+        //             .brp()
+        //             .bits(1)
+        //     });
+        // }
 
-        if !can3.msr.read().inak().bit() {
+
+        if !can1.msr.read().inak().bit() {
             write_string_to_serial(&mut tx, "INAK is cleared\n");
         } else {
             write_string_to_serial(&mut tx, "INAK is set\n");
         }
 
         // Switch hardware into normal mode.
-        can3.mcr.modify(|_, w| w.inrq().clear_bit());
-
-        can3.fmr.modify(|_, w| w.finit().clear_bit());
+        can1.mcr.modify(|_, w| w.inrq().clear_bit());
 
         // Wait for INAK bit in MSR to be cleared to indicate init has completed
         loop {
-            if !can3.msr.read().inak().bit() {
+            if !can1.msr.read().inak().bit() {
                 break;
-            }
-            if can3.mcr.read().inrq().bit() {
-                write_string_to_serial(&mut tx, "INRQ Is Set\n");
             }
             delay.delay_ms(1000_u32);
             write_string_to_serial(&mut tx, "Waiting for INAK to be cleared\n");
@@ -164,20 +183,25 @@ fn main() -> ! {
 
         // Set to standard identifier
         unsafe {
-            can3.tx[0]
+            can1.tx[0]
                 .tir
                 .modify(|_, w| w.ide().standard().stid().bits(12));
         }
 
         unsafe {
-            can3.tx[0].tdtr.modify(|_, w| w.dlc().bits(2));
+            can1.tx[0].tdtr.modify(|_, w| w.dlc().bits(8));
+        }
+
+        unsafe {
+            can1.tx[0].tdlr.write(|w| w.bits(0x04030201));
+            can1.tx[0].tdhr.write(|w| w.bits(0x08070605));
         }
 
         // Start transmission
-        can3.tx[0].tir.modify(|_, w| w.txrq().set_bit());
+        can1.tx[0].tir.modify(|_, w| w.txrq().set_bit());
 
         loop {
-            if can3.tx[0].tir.read().txrq().bit_is_clear() {
+            if can1.tx[0].tir.read().txrq().bit_is_clear() {
                 break;
             }
         }
