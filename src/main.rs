@@ -20,7 +20,6 @@ use crate::hal::serial::config::Config;
 use stm32f4;
 use stm32f4xx_hal::gpio::gpiod::{PD0, PD1, PD8, PD9};
 use stm32f4xx_hal::stm32::USART3;
-// use stm32f4::stm32f413::USART3;
 
 use crate::hal::{prelude::*, serial::Serial, stm32, time::Bps};
 
