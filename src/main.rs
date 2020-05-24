@@ -16,22 +16,27 @@ use usbd_serial::{SerialPort, USB_CLASS_CDC};
 
 static mut EP_MEMORY: [u32; 1024] = [0; 1024];
 
+static USB_SEND: [u8; 128] = [0x41; 128];
+
 #[entry]
 fn main() -> ! {
     let dp = stm32::Peripherals::take().unwrap();
 
     let rcc = dp.RCC.constrain();
 
-    let clocks = rcc
+    let _clocks = rcc
         .cfgr
         .use_hse(8.mhz())
         .sysclk(48.mhz())
         .pclk1(24.mhz())
         .pclk2(24.mhz())
+        .require_pll48clk()
         .freeze();
 
     let gpiob = dp.GPIOB.split();
     let mut led = gpiob.pb7.into_push_pull_output();
+    let mut red_led = gpiob.pb14.into_push_pull_output();
+    red_led.set_low().ok();
     led.set_low().ok(); // Turn off
 
     let gpioa = dp.GPIOA.split();
@@ -58,22 +63,33 @@ fn main() -> ! {
         .device_class(USB_CLASS_CDC)
         .build();
 
+    match serial.write(&USB_SEND[1..2]) {
+        Ok(len) if len > 0 => {
+            red_led.toggle().ok();
+        }
+
+        _ => {}
+    }
+
     loop {
+
         if !usb_dev.poll(&mut [&mut serial]) {
             continue;
         }
 
         let mut buf = [0u8; 64];
 
+        red_led.toggle().ok();
+
         match serial.read(&mut buf) {
             Ok(count) if count > 0 => {
                 led.set_high().ok();
 
-                for c in buf[0..count].iter_mut() {
-                    if 0x61 <= *c && *c <= 0x7a {
-                        *c &= !0x20;
-                    }
-                }
+                // for c in buf[0..count].iter_mut() {
+                //     if 0x61 <= *c && *c <= 0x7a {
+                //         *c &= !0x20;
+                //     }
+                // }
 
                 let mut write_offset = 0;
                 while write_offset < count {
@@ -86,7 +102,8 @@ fn main() -> ! {
                     }
                 }
             }
-            _ => {}
+            _ => {
+            }
         }
 
         led.set_low().ok();

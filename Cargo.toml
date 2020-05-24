@@ -31,6 +31,9 @@ usbd-serial = "0.1"
 features = ["stm32f413", "rt"]
 version = "0.10.0"
 
+[patch.crates-io]
+synopsys-usb-otg = { path = '../synopsys-usb-otg' }
+
 # this lets you use `cargo fix`!
 [[bin]]
 name = "nucleo-f413"
@@ -40,4 +43,4 @@ bench = false
 [profile.release]
 codegen-units = 1 # better optimizations
 debug = true # symbols are nice and they don't increase the size on Flash
-lto = true # better optimizations
+# lto = true # better optimizations
