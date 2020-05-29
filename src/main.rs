@@ -63,15 +63,27 @@ fn main() -> ! {
         .device_class(USB_CLASS_CDC)
         .build();
 
-    match serial.write(&USB_SEND[1..2]) {
-        Ok(len) if len > 0 => {
-            red_led.toggle().ok();
-        }
+    // match serial.write(&USB_SEND[1..2]) {
+    //     Ok(len) if len > 0 => {
+    //         red_led.toggle().ok();
+    //     }
 
-        _ => {}
-    }
-
+    //     _ => {}
+    // }
+    
+    let mut counter: u32 = 0;
     loop {
+        // counter += 1;
+        // if counter == 10000 {
+        //     counter = 0;
+        //     match serial.write(&USB_SEND[1..5]) {
+        //         Ok(len) if len > 0 => {
+        //             red_led.toggle().ok();
+        //         }
+
+        //         _ => {}
+        //     }
+        // }
 
         if !usb_dev.poll(&mut [&mut serial]) {
             continue;
@@ -85,11 +97,11 @@ fn main() -> ! {
             Ok(count) if count > 0 => {
                 led.set_high().ok();
 
-                // for c in buf[0..count].iter_mut() {
-                //     if 0x61 <= *c && *c <= 0x7a {
-                //         *c &= !0x20;
-                //     }
-                // }
+                for c in buf[0..count].iter_mut() {
+                    if 0x61 <= *c && *c <= 0x7a {
+                        *c &= !0x20;
+                    }
+                }
 
                 let mut write_offset = 0;
                 while write_offset < count {
